@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Incident Triage Dashboard</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+.app{max-width:1200px;margin:0 auto;padding:24px}
+h1{font-size:1.5rem;margin-bottom:16px;color:#f8fafc}
+.filters{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.filters button{padding:6px 14px;border-radius:6px;border:1px solid #334155;background:#1e293b;color:#cbd5e1;cursor:pointer;font-size:.85rem;transition:all .15s}
+.filters button:hover{background:#334155}
+.filters button.active{color:#fff;border-color:#6366f1;background:#4338ca}
+table{width:100%;border-collapse:collapse;background:#1e293b;border-radius:8px;overflow:hidden}
+th{text-align:left;padding:10px 14px;background:#0f172a;font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#94a3b8}
+td{padding:10px 14px;border-top:1px solid #334155;font-size:.9rem;cursor:pointer}
+tr:hover td{background:#334155}
+.sev{display:inline-block;padding:2px 10px;border-radius:9999px;font-size:.75rem;font-weight:600;text-transform:uppercase}
+.sev-critical{background:#991b1b;color:#fca5a5}
+.sev-high{background:#9a3412;color:#fdba74}
+.sev-medium{background:#854d0e;color:#fde047}
+.sev-low{background:#166534;color:#86efac}
+.status{font-size:.8rem;padding:2px 8px;border-radius:4px;background:#334155;color:#cbd5e1}
+.detail-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:50}
+.detail-panel{background:#1e293b;border-radius:12px;padding:24px;width:560px;max-height:80vh;overflow-y:auto}
+.detail-panel h2{margin-bottom:8px;font-size:1.2rem}
+.detail-panel .meta{display:flex;gap:12px;margin-bottom:16px;align-items:center}
+.detail-panel fieldset{border:1px solid #334155;border-radius:6px;padding:12px;margin-bottom:12px}
+.detail-panel label{display:block;font-size:.8rem;color:#94a3b8;margin-bottom:4px}
+.detail-panel select,.detail-panel textarea{width:100%;padding:6px 8px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:4px;font-size:.85rem}
+.detail-panel textarea{min-height:60px;resize:vertical}
+.actions{display:flex;gap:8px;margin-top:16px}
+.btn{padding:8px 16px;border-radius:6px;border:none;cursor:pointer;font-size:.85rem;font-weight:600}
+.btn-primary{background:#6366f1;color:#fff}.btn-primary:hover{background:#4f46e5}
+.btn-secondary{background:#334155;color:#cbd5e1}.btn-secondary:hover{background:#475569}
+.no-data{padding:40px;text-align:center;color:#64748b}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const API = window.__API_URL__ || '';
+const SEVS = ['critical','high','medium','low'];
+const STATUSES = ['new','investigating','resolved','dismissed'];
+const SEV_COLOR = s => `sev sev-${s}`;
+
+function fetchIncidents(){
+  return fetch(`${API}/incidents`).then(r=>r.json()).catch(()=>[]);
+}
+
+function App(){
+  const [incidents, setIncidents] = React.useState([]);
+  const [sevFilter, setSevFilter] = React.useState('all');
+  const [selected, setSelected] = React.useState(null);
+  const [note, setNote] = React.useState('');
+  const [statusPick, setStatusPick] = React.useState('');
+
+  React.useEffect(()=>{ fetchIncidents().then(setIncidents); },[]);
+
+  const filtered = sevFilter==='all' ? incidents : incidents.filter(i=>i.severity===sevFilter);
+  const sorted = [...filtered].sort((a,b)=>SEVS.indexOf(a.severity)-SEVS.indexOf(b.severity));
+
+  async function updateStatus(id, status, notes){
+    await fetch(`${API}/incidents/${id}`,{
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({status, notes})
+    });
+    setIncidents(prev=>prev.map(i=>i.id===id?{...i,status,notes}:i));
+  }
+
+  function openDetail(inc){
+    setSelected(inc); setStatusPick(inc.status); setNote(inc.notes||'');
+  }
+  function closeDetail(){ setSelected(null); }
+
+  return (
+    <div className="app">
+      <h1>🚨 Incident Triage Dashboard</h1>
+      <div className="filters">
+        <button className={sevFilter==='all'?'active':''} onClick={()=>setSevFilter('all')}>All</button>
+        {SEVS.map(s=>(
+          <button key={s} className={sevFilter===s?'active':''} onClick={()=>setSevFilter(s)}>
+            <span className={SEV_COLOR(s)}>{s}</span>
+          </button>
+        ))}
+        <span style={{marginLeft:'auto',color:'#64748b',fontSize:'.85rem',alignSelf:'center'}}>
+          {sorted.length} incident{sorted.length!==1?'s':''}
+        </span>
+      </div>
+      <table>
+        <thead><tr><th>Severity</th><th>Title</th><th>Source</th><th>Status</th><th>Time</th></tr></thead>
+        <tbody>
+          {sorted.length===0 && <tr><td colSpan="5" className="no-data">No incidents found</td></tr>}
+          {sorted.map(inc=>(
+            <tr key={inc.id} onClick={()=>openDetail(inc)}>
+              <td><span className={SEV_COLOR(inc.severity)}>{inc.severity}</span></td>
+              <td>{inc.title}</td>
+              <td style={{color:'#64748b'}}>{inc.source||'—'}</td>
+              <td><span className="status">{inc.status}</span></td>
+              <td style={{color:'#64748b',fontSize:.8rem}}>{new Date(inc.created_at).toLocaleString()}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {selected && (
+        <div className="detail-overlay" onClick={e=>e.target===e.currentTarget&&closeDetail()}>
+          <div className="detail-panel">
+            <h2>{selected.title}</h2>
+            <div className="meta">
+              <span className={SEV_COLOR(selected.severity)}>{selected.severity}</span>
+              <span className="status">{selected.status}</span>
+              <span style={{color:'#64748b',fontSize:.8rem'}}>{new Date(selected.created_at).toLocaleString()}</span>
+            </div>
+            {selected.source&&<p style={{color:'#94a3b8',marginBottom:12}}>Source: {selected.source}</p>}
+            <fieldset>
+              <label>Description</label>
+              <p style={{fontSize:'.9rem',lineHeight:1.5}}>{selected.description||'No description available.'}</p>
+            </fieldset>
+            <fieldset>
+              <label>Update Status</label>
+              <select value={statusPick} onChange={e=>setStatusPick(e.target.value)}>
+                {STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
+              </select>
+            </fieldset>
+            <fieldset>
+              <label>Triage Notes</label>
+              <textarea value={note} onChange={e=>setNote(e.target.value)} placeholder="Add triage notes..."/>
+            </fieldset>
+            <div className="actions">
+              <button className="btn btn-primary" onClick={()=>{updateStatus(selected.id,statusPick,note);closeDetail();}}>Save</button>
+              <button className="btn btn-secondary" onClick={closeDetail}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
